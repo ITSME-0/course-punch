@@ -426,6 +426,22 @@
       cursor: pointer; color: white; font-weight: 500;
     }
 
+    /* ── Export course list ── */
+    .export-course-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .export-course-item:last-child { border-bottom: none; }
+    .export-course-item input[type="checkbox"] {
+      width: 20px; height: 20px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
     /* ── Reminder note ── */
     .reminder-note {
       font-size: 12px; color: var(--sub);
@@ -562,7 +578,7 @@
   </div>
   <div class="settings-section">
     <div class="section-label">数据</div>
-    <button class="export-btn" onclick="exportAsImage()">导出图片</button>
+    <button class="export-btn" onclick="openExportSheet()">导出图片</button>
   </div>
 </div>
 
@@ -618,6 +634,18 @@
   <div class="sheet-actions">
     <button class="btn-cancel" onclick="closeSheet('sheet-course')">取消</button>
     <button class="btn-save" onclick="saveCourse()">保存</button>
+  </div>
+</div>
+
+<!-- ── Sheet: 导出选课 ── -->
+<div class="sheet-mask" id="mask-export" onclick="closeSheet('sheet-export')"></div>
+<div class="bottom-sheet" id="sheet-export">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">选择导出课程</div>
+  <div id="export-course-list"></div>
+  <div class="sheet-actions">
+    <button class="btn-cancel" onclick="closeSheet('sheet-export')">取消</button>
+    <button class="btn-save" onclick="doExport()">导出图片</button>
   </div>
 </div>
 
@@ -1150,112 +1178,155 @@
     });
   }
 
-  // ── Export as image ──
-  function exportAsImage() {
-    const counts = {};
-    state.courses.forEach(c => counts[c.name] = 0);
-    state.records.forEach(r => { if (counts[r.name] !== undefined) counts[r.name]++; });
+  // ── Export ──
+  function openExportSheet() {
+    document.getElementById('export-course-list').innerHTML = state.courses.map(c => `
+      <label class="export-course-item">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="s-dot" style="background:${colorFor(c.name)}"></div>
+          <span style="font-size:15px;color:var(--text)">${c.name}</span>
+        </div>
+        <input type="checkbox" value="${esc(c.name)}" checked>
+      </label>
+    `).join('');
+    openSheet('sheet-export');
+  }
 
+  function doExport() {
+    const selected = [...document.querySelectorAll('#export-course-list input:checked')].map(i => i.value);
+    if (!selected.length) { showToast('请至少选择一个课程'); return; }
+    closeSheet('sheet-export');
+    exportAsImage(selected);
+  }
+
+  function exportAsImage(selectedNames) {
     const dpr = Math.min(window.devicePixelRatio || 2, 3);
     const W = 600;
-    const CP = 32;   // card padding
-    const IP = 28;   // inner padding
-    const HEADER_H = 80;
-    const ROW_H = state.courses.some(c => c.total > 0) ? 64 : 48;
-    const FOOTER_H = 52;
-    const H = CP * 2 + HEADER_H + state.courses.length * ROW_H + FOOTER_H;
+    const CP = 32, IP = 28;
+    const HEADER_H = 76;
+    const SEC_H = 40;   // course section header
+    const ROW_H = 32;   // each record row
+    const SEC_GAP = 12; // gap between sections
+    const FOOTER_H = 48;
+
+    // Calculate total height
+    let contentH = HEADER_H;
+    selectedNames.forEach((name, i) => {
+      const recs = state.records.filter(r => r.name === name);
+      contentH += SEC_H + Math.max(recs.length, 1) * ROW_H;
+      if (i < selectedNames.length - 1) contentH += SEC_GAP;
+    });
+    contentH += FOOTER_H;
+    const H = CP * 2 + contentH;
 
     const canvas = document.createElement('canvas');
     canvas.width = W * dpr;
     canvas.height = H * dpr;
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
+    ctx.textBaseline = 'top';
 
-    // Outer bg
+    // Background + card
     ctx.fillStyle = '#F2F0ED';
     ctx.fillRect(0, 0, W, H);
-
-    // Card
     ctx.fillStyle = '#FFFFFF';
-    rrect(ctx, CP, CP, W - CP * 2, H - CP * 2, 20);
+    rrect(ctx, CP, CP, W - CP*2, H - CP*2, 20);
     ctx.fill();
 
-    const cx = CP + IP;
-    const cw = W - (CP + IP) * 2;
-
-    // Title
-    ctx.textBaseline = 'top';
-    ctx.fillStyle = '#2C2C2C';
-    ctx.font = 'bold 19px "PingFang SC", "Microsoft YaHei", sans-serif';
-    ctx.fillText('课时打卡', cx, CP + IP);
-
-    // Date right
+    const cx = CP + IP, cw = W - (CP + IP) * 2;
     const now = new Date();
-    const dateStr = `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日`;
+    let y = CP + IP;
+
+    // Header: title + date
+    ctx.fillStyle = '#2C2C2C';
+    ctx.font = 'bold 18px "PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillText('课时打卡记录', cx, y);
     ctx.fillStyle = '#9DA8AC';
-    ctx.font = '13px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.font = '12px "PingFang SC","Microsoft YaHei",sans-serif';
     ctx.textAlign = 'right';
-    ctx.fillText(dateStr, cx + cw, CP + IP + 4);
+    ctx.fillText(`${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日`, cx + cw, y + 4);
     ctx.textAlign = 'left';
 
-    // Divider under header
-    const divY = CP + HEADER_H - 16;
+    y += 36;
     ctx.fillStyle = '#EAE8E5';
-    ctx.fillRect(cx, divY, cw, 1);
+    ctx.fillRect(cx, y, cw, 1);
+    y += 16;
 
-    // Course rows
-    const rowsY = CP + HEADER_H;
-    state.courses.forEach((c, i) => {
-      const n = counts[c.name];
-      const ry = rowsY + i * ROW_H;
-      const mid = ry + (c.total > 0 ? 18 : ROW_H / 2 - 6);
+    // Each selected course
+    selectedNames.forEach((name, si) => {
+      const course = state.courses.find(c => c.name === name);
+      const recs = [...state.records.filter(r => r.name === name)].reverse(); // oldest first
+      const total = course ? course.total : 0;
 
-      // Dot
+      // Section header: dot + name + count
       ctx.beginPath();
-      ctx.arc(cx + 6, mid, 5, 0, Math.PI * 2);
-      ctx.fillStyle = colorFor(c.name);
+      ctx.arc(cx + 5, y + 9, 5, 0, Math.PI * 2);
+      ctx.fillStyle = colorFor(name);
       ctx.fill();
 
-      // Name
       ctx.fillStyle = '#2C2C2C';
-      ctx.font = '500 15px "PingFang SC", "Microsoft YaHei", sans-serif';
-      ctx.fillText(c.name, cx + 20, mid - 9);
+      ctx.font = 'bold 15px "PingFang SC","Microsoft YaHei",sans-serif';
+      ctx.fillText(name, cx + 18, y);
 
-      // Count
       ctx.textAlign = 'right';
       ctx.fillStyle = '#5A6A70';
-      ctx.font = '14px "PingFang SC", "Microsoft YaHei", sans-serif';
-      const cntStr = c.total > 0 ? `${n} / ${c.total} 节` : `${n} 节`;
-      ctx.fillText(cntStr, cx + cw, mid - 9);
+      ctx.font = '13px "PingFang SC","Microsoft YaHei",sans-serif';
+      ctx.fillText(total > 0 ? `${recs.length} / ${total} 节` : `${recs.length} 节`, cx + cw, y + 1);
       ctx.textAlign = 'left';
 
-      // Progress bar if package set
-      if (c.total > 0) {
-        const bw = cw, bh = 5, by = mid + 12;
-        ctx.fillStyle = '#EAE8E5';
-        rrect(ctx, cx, by, bw, bh, 3); ctx.fill();
-        const fill = Math.min(n / c.total, 1) * bw;
-        if (fill > 0) {
-          ctx.fillStyle = colorFor(c.name);
-          rrect(ctx, cx, by, fill, bh, 3); ctx.fill();
-        }
+      y += SEC_H;
+
+      // Record rows
+      if (!recs.length) {
+        ctx.fillStyle = '#C8CDD0';
+        ctx.font = '13px "PingFang SC","Microsoft YaHei",sans-serif';
+        ctx.fillText('暂无记录', cx + 8, y + 8);
+        y += ROW_H;
+      } else {
+        recs.forEach((r, ri) => {
+          const d = new Date(r.time);
+          const ds = `${d.getMonth()+1}月${d.getDate()}日`;
+          const dw = `周${WEEKDAYS[d.getDay()]}`;
+          const ts = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+          ctx.fillStyle = '#3A4A50';
+          ctx.font = '13px "PingFang SC","Microsoft YaHei",sans-serif';
+          ctx.fillText(ds, cx + 8, y + 8);
+
+          ctx.fillStyle = '#9DA8AC';
+          ctx.fillText(dw, cx + 88, y + 8);
+
+          ctx.textAlign = 'right';
+          ctx.fillStyle = '#5A6A70';
+          ctx.fillText(ts, cx + cw, y + 8);
+          ctx.textAlign = 'left';
+
+          if (ri < recs.length - 1) {
+            ctx.fillStyle = '#F5F3F0';
+            ctx.fillRect(cx + 8, y + ROW_H - 1, cw - 8, 1);
+          }
+          y += ROW_H;
+        });
       }
 
-      // Row separator
-      if (i < state.courses.length - 1) {
-        ctx.fillStyle = '#F5F3F0';
-        ctx.fillRect(cx, ry + ROW_H - 1, cw, 1);
+      // Section separator
+      if (si < selectedNames.length - 1) {
+        y += 8;
+        ctx.fillStyle = '#EAE8E5';
+        ctx.fillRect(cx, y, cw, 1);
+        y += SEC_GAP;
       }
     });
 
     // Footer
-    const fy = rowsY + state.courses.length * ROW_H + 12;
+    y += 16;
     ctx.fillStyle = '#EAE8E5';
-    ctx.fillRect(cx, fy, cw, 1);
+    ctx.fillRect(cx, y, cw, 1);
+    y += 14;
     ctx.fillStyle = '#B0B8BB';
-    ctx.font = '12px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.font = '11px "PingFang SC","Microsoft YaHei",sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`共记录 ${state.records.length} 节课`, W / 2, fy + 18);
+    ctx.fillText('课时打卡 · 仅供参考', W / 2, y);
     ctx.textAlign = 'left';
 
     canvas.toBlob(blob => {
