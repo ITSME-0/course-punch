@@ -562,7 +562,7 @@
   </div>
   <div class="settings-section">
     <div class="section-label">数据</div>
-    <button class="export-btn" onclick="exportData()">导出记录</button>
+    <button class="export-btn" onclick="exportAsImage()">导出图片</button>
   </div>
 </div>
 
@@ -1150,32 +1150,142 @@
     });
   }
 
-  // ── Export ──
-  function exportData() {
-    const now = new Date();
+  // ── Export as image ──
+  function exportAsImage() {
     const counts = {};
     state.courses.forEach(c => counts[c.name] = 0);
     state.records.forEach(r => { if (counts[r.name] !== undefined) counts[r.name]++; });
 
-    let text = `课时打卡记录\n导出时间：${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日\n\n`;
-    text += `── 课时汇总 ──\n`;
-    state.courses.forEach(c => {
+    const dpr = Math.min(window.devicePixelRatio || 2, 3);
+    const W = 600;
+    const CP = 32;   // card padding
+    const IP = 28;   // inner padding
+    const HEADER_H = 80;
+    const ROW_H = state.courses.some(c => c.total > 0) ? 64 : 48;
+    const FOOTER_H = 52;
+    const H = CP * 2 + HEADER_H + state.courses.length * ROW_H + FOOTER_H;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    // Outer bg
+    ctx.fillStyle = '#F2F0ED';
+    ctx.fillRect(0, 0, W, H);
+
+    // Card
+    ctx.fillStyle = '#FFFFFF';
+    rrect(ctx, CP, CP, W - CP * 2, H - CP * 2, 20);
+    ctx.fill();
+
+    const cx = CP + IP;
+    const cw = W - (CP + IP) * 2;
+
+    // Title
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#2C2C2C';
+    ctx.font = 'bold 19px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.fillText('课时打卡', cx, CP + IP);
+
+    // Date right
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日`;
+    ctx.fillStyle = '#9DA8AC';
+    ctx.font = '13px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(dateStr, cx + cw, CP + IP + 4);
+    ctx.textAlign = 'left';
+
+    // Divider under header
+    const divY = CP + HEADER_H - 16;
+    ctx.fillStyle = '#EAE8E5';
+    ctx.fillRect(cx, divY, cw, 1);
+
+    // Course rows
+    const rowsY = CP + HEADER_H;
+    state.courses.forEach((c, i) => {
       const n = counts[c.name];
-      text += c.total > 0
-        ? `${c.name}：已上 ${n} 节 / 共 ${c.total} 节（剩余 ${c.total - n} 节）\n`
-        : `${c.name}：已上 ${n} 节\n`;
-    });
-    text += `\n── 详细记录 ──\n`;
-    state.records.forEach(r => {
-      const d = new Date(r.time);
-      text += `${d.getFullYear()}.${d.getMonth()+1}.${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}  ${r.name}\n`;
+      const ry = rowsY + i * ROW_H;
+      const mid = ry + (c.total > 0 ? 18 : ROW_H / 2 - 6);
+
+      // Dot
+      ctx.beginPath();
+      ctx.arc(cx + 6, mid, 5, 0, Math.PI * 2);
+      ctx.fillStyle = colorFor(c.name);
+      ctx.fill();
+
+      // Name
+      ctx.fillStyle = '#2C2C2C';
+      ctx.font = '500 15px "PingFang SC", "Microsoft YaHei", sans-serif';
+      ctx.fillText(c.name, cx + 20, mid - 9);
+
+      // Count
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#5A6A70';
+      ctx.font = '14px "PingFang SC", "Microsoft YaHei", sans-serif';
+      const cntStr = c.total > 0 ? `${n} / ${c.total} 节` : `${n} 节`;
+      ctx.fillText(cntStr, cx + cw, mid - 9);
+      ctx.textAlign = 'left';
+
+      // Progress bar if package set
+      if (c.total > 0) {
+        const bw = cw, bh = 5, by = mid + 12;
+        ctx.fillStyle = '#EAE8E5';
+        rrect(ctx, cx, by, bw, bh, 3); ctx.fill();
+        const fill = Math.min(n / c.total, 1) * bw;
+        if (fill > 0) {
+          ctx.fillStyle = colorFor(c.name);
+          rrect(ctx, cx, by, fill, bh, 3); ctx.fill();
+        }
+      }
+
+      // Row separator
+      if (i < state.courses.length - 1) {
+        ctx.fillStyle = '#F5F3F0';
+        ctx.fillRect(cx, ry + ROW_H - 1, cw, 1);
+      }
     });
 
-    if (navigator.share) {
-      navigator.share({title: '课时打卡记录', text});
-    } else {
-      navigator.clipboard.writeText(text).then(() => showToast('已复制到剪贴板'));
-    }
+    // Footer
+    const fy = rowsY + state.courses.length * ROW_H + 12;
+    ctx.fillStyle = '#EAE8E5';
+    ctx.fillRect(cx, fy, cw, 1);
+    ctx.fillStyle = '#B0B8BB';
+    ctx.font = '12px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`共记录 ${state.records.length} 节课`, W / 2, fy + 18);
+    ctx.textAlign = 'left';
+
+    canvas.toBlob(blob => {
+      const fname = `课时记录_${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}.png`;
+      const file = new File([blob], fname, {type: 'image/png'});
+      if (navigator.canShare && navigator.canShare({files: [file]})) {
+        navigator.share({title: '课时记录', files: [file]}).catch(() => {});
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = fname;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+    }, 'image/png');
+  }
+
+  function rrect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
   }
 
   // ── Utils ──
