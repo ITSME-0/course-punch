@@ -589,7 +589,7 @@
   </div>
   <div class="form-row">
     <div class="form-label">日期</div>
-    <input type="date" class="form-input" id="add-date">
+    <input type="date" class="form-input" id="add-date" onchange="updateAddTime()">
   </div>
   <div class="form-row">
     <div class="form-label">时间</div>
@@ -1059,7 +1059,10 @@
     if (id === 'sheet-add') {
       const sel = document.getElementById('add-course');
       sel.innerHTML = state.courses.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
-      document.getElementById('add-date').value = new Date().toISOString().slice(0,10);
+      const today = new Date().toISOString().slice(0, 10);
+      const dateEl = document.getElementById('add-date');
+      dateEl.value = today;
+      dateEl.max = today;
       updateAddTime();
     }
     if (id === 'sheet-reminder') {
@@ -1077,14 +1080,17 @@
 
   function updateAddTime() {
     const name = document.getElementById('add-course').value;
-    const reminder = state.reminders.find(r => r.course === name);
+    const dateVal = document.getElementById('add-date').value;
     const timeEl = document.getElementById('add-time');
-    if (reminder) {
-      timeEl.value = `${pad(reminder.hour)}:${pad(reminder.minute)}`;
-    } else {
-      const now = new Date();
-      timeEl.value = now.toTimeString().slice(0, 5);
+    if (dateVal) {
+      const dow = new Date(dateVal + 'T12:00:00').getDay();
+      const reminder = state.reminders.find(r => r.course === name && r.day === dow);
+      if (reminder) {
+        timeEl.value = `${pad(reminder.hour)}:${pad(reminder.minute)}`;
+        return;
+      }
     }
+    timeEl.value = new Date().toTimeString().slice(0, 5);
   }
 
   function submitAdd() {
@@ -1093,6 +1099,7 @@
     const time = document.getElementById('add-time').value;
     if (!name || !date || !time) { showToast('请填写完整'); return; }
     const dt = new Date(`${date}T${time}`);
+    if (dt >= new Date()) { showToast('只能补录过去的记录'); return; }
     state.records.push({id: dt.getTime() + Math.random(), name, time: dt.toISOString()});
     state.records.sort((a,b) => new Date(b.time) - new Date(a.time));
     saveState();
