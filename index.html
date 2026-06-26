@@ -585,7 +585,7 @@
   <div class="sheet-title">补录记录</div>
   <div class="form-row">
     <div class="form-label">课程</div>
-    <select class="form-select" id="add-course"></select>
+    <select class="form-select" id="add-course" onchange="updateAddTime()"></select>
   </div>
   <div class="form-row">
     <div class="form-label">日期</div>
@@ -1059,9 +1059,8 @@
     if (id === 'sheet-add') {
       const sel = document.getElementById('add-course');
       sel.innerHTML = state.courses.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
-      const now = new Date();
-      document.getElementById('add-date').value = now.toISOString().slice(0,10);
-      document.getElementById('add-time').value = now.toTimeString().slice(0,5);
+      document.getElementById('add-date').value = new Date().toISOString().slice(0,10);
+      updateAddTime();
     }
     if (id === 'sheet-reminder') {
       const sel = document.getElementById('reminder-course');
@@ -1074,6 +1073,18 @@
   function closeSheet(id) {
     document.getElementById(id).classList.remove('open');
     document.getElementById('mask-' + id.replace('sheet-','')).classList.remove('open');
+  }
+
+  function updateAddTime() {
+    const name = document.getElementById('add-course').value;
+    const reminder = state.reminders.find(r => r.course === name);
+    const timeEl = document.getElementById('add-time');
+    if (reminder) {
+      timeEl.value = `${pad(reminder.hour)}:${pad(reminder.minute)}`;
+    } else {
+      const now = new Date();
+      timeEl.value = now.toTimeString().slice(0, 5);
+    }
   }
 
   function submitAdd() {
