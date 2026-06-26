@@ -510,6 +510,70 @@
       cursor: pointer;
     }
 
+    /* ── Batch preview ── */
+    .batch-step { padding: 16px; }
+    .batch-info {
+      font-size: 13px; color: var(--sub);
+      background: var(--card);
+      border-radius: 12px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      line-height: 1.6;
+      box-shadow: var(--shadow);
+    }
+    .batch-preview-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .batch-preview-count { font-size: 13px; color: var(--sub); }
+    .batch-toggle-all {
+      background: none; border: none;
+      font-size: 13px; font-weight: 500;
+      color: var(--primary-text); cursor: pointer; padding: 4px 8px;
+      border-radius: 8px;
+    }
+    .batch-toggle-all:active { background: var(--primary-bg); }
+    .batch-list {
+      background: var(--card);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+    .batch-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 13px 16px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .batch-item:last-child { border-bottom: none; }
+    .batch-item input[type="checkbox"] {
+      width: 20px; height: 20px;
+      accent-color: var(--primary); cursor: pointer; flex-shrink: 0;
+    }
+    .batch-item-info { flex: 1; }
+    .batch-item-date { font-size: 15px; color: var(--text); }
+    .batch-item-time { font-size: 12px; color: var(--sub); margin-top: 2px; }
+    .batch-empty {
+      text-align: center; color: #bdc1c6;
+      font-size: 14px; padding: 40px 0;
+    }
+    .batch-submit {
+      width: 100%; padding: 14px;
+      border: none; border-radius: 24px;
+      background: var(--primary); color: white;
+      font-size: 15px; font-weight: 500;
+      cursor: pointer;
+      box-shadow: 0 1px 3px rgba(26,115,232,.4);
+      transition: background 0.1s;
+    }
+    .batch-submit:active { background: var(--primary-text); }
+    .batch-submit:disabled { background: #bdc1c6; box-shadow: none; cursor: default; }
+
     /* ── Reminder note ── */
     .reminder-note {
       font-size: 12px; color: var(--sub);
@@ -600,6 +664,7 @@
     <div class="punch-actions">
       <button class="action-btn" onclick="showLog(null)">全部记录</button>
       <button class="action-btn" onclick="openSheet('sheet-add')">补录</button>
+      <button class="action-btn" onclick="openBatch()">批量补录</button>
     </div>
   </div>
 </div>
@@ -672,6 +737,47 @@
     <div style="width:44px"></div>
   </div>
   <div class="records" id="records"></div>
+</div>
+
+<!-- ── Overlay: 批量补录 ── -->
+<div class="overlay-page" id="page-batch">
+  <div class="overlay-header">
+    <button class="icon-btn" onclick="closeBatch()">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+    </button>
+    <h1>批量补录</h1>
+    <div style="width:44px"></div>
+  </div>
+
+  <!-- Step 1: 选参数 -->
+  <div class="batch-step" id="batch-step1">
+    <div class="batch-info">根据已设置的上课提醒，自动生成指定日期范围内的所有课程记录，逐一确认后批量写入。</div>
+    <div class="form-row">
+      <div class="form-label">课程</div>
+      <select class="form-select" id="batch-course"></select>
+    </div>
+    <div class="form-row">
+      <div class="form-label">开始日期</div>
+      <input type="date" class="form-input" id="batch-start">
+    </div>
+    <div class="form-row">
+      <div class="form-label">结束日期</div>
+      <input type="date" class="form-input" id="batch-end">
+    </div>
+    <div style="margin-top:8px">
+      <button class="batch-submit" onclick="generateBatch()">生成预览</button>
+    </div>
+  </div>
+
+  <!-- Step 2: 预览勾选 -->
+  <div class="batch-step" id="batch-step2" style="display:none">
+    <div class="batch-preview-header">
+      <div class="batch-preview-count" id="batch-count"></div>
+      <button class="batch-toggle-all" onclick="toggleAllBatch()">全选/全不选</button>
+    </div>
+    <div class="batch-list" id="batch-list"></div>
+    <button class="batch-submit" id="batch-submit-btn" onclick="submitBatch()">保存</button>
+  </div>
 </div>
 
 <!-- ── Sheet: 补录 ── -->
@@ -1442,6 +1548,145 @@
     el.textContent = msg;
     el.classList.add('show');
     setTimeout(() => el.classList.remove('show'), 1800);
+  }
+
+  // ── Batch back-entry ──
+  function openBatch() {
+    const sel = document.getElementById('batch-course');
+    sel.innerHTML = state.courses.map(c => `<option value="${esc(c.name)}">${c.name}</option>`).join('');
+    const today = new Date().toISOString().slice(0, 10);
+    document.getElementById('batch-end').value = today;
+    document.getElementById('batch-end').max = today;
+    // Default start: 3 months ago
+    const threeMonthsAgo = new Date();
+    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+    document.getElementById('batch-start').value = threeMonthsAgo.toISOString().slice(0, 10);
+    document.getElementById('batch-start').max = today;
+    document.getElementById('batch-step1').style.display = 'block';
+    document.getElementById('batch-step2').style.display = 'none';
+    document.getElementById('page-batch').classList.add('show');
+  }
+
+  function closeBatch() {
+    document.getElementById('page-batch').classList.remove('show');
+  }
+
+  function generateBatch() {
+    const name = document.getElementById('batch-course').value;
+    const startVal = document.getElementById('batch-start').value;
+    const endVal = document.getElementById('batch-end').value;
+    if (!startVal || !endVal) { showToast('请填写日期范围'); return; }
+    if (startVal > endVal) { showToast('开始日期不能晚于结束日期'); return; }
+
+    const reminders = state.reminders.filter(r => r.course === name);
+    if (!reminders.length) {
+      showToast(`${name} 没有设置提醒，无法生成课表`); return;
+    }
+
+    // Build a map: day-of-week → [reminders] (may have multiple times per day)
+    const byDay = {};
+    reminders.forEach(r => {
+      if (!byDay[r.day]) byDay[r.day] = [];
+      byDay[r.day].push(r);
+    });
+
+    // Existing records for this course (to mark duplicates)
+    const existing = new Set(
+      state.records.filter(r => r.name === name).map(r => {
+        const d = new Date(r.time);
+        return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+      })
+    );
+
+    const items = [];
+    const cur = new Date(startVal + 'T12:00:00');
+    const end = new Date(endVal + 'T12:00:00');
+    while (cur <= end) {
+      const dow = cur.getDay();
+      if (byDay[dow]) {
+        const dateStr = cur.toISOString().slice(0, 10);
+        byDay[dow].forEach(r => {
+          items.push({
+            date: dateStr,
+            dow,
+            hour: r.hour,
+            minute: r.minute,
+            duplicate: existing.has(dateStr)
+          });
+        });
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
+
+    if (!items.length) {
+      showToast('该日期范围内没有匹配的上课日'); return;
+    }
+
+    renderBatchPreview(name, items);
+    document.getElementById('batch-step1').style.display = 'none';
+    document.getElementById('batch-step2').style.display = 'block';
+  }
+
+  function renderBatchPreview(name, items) {
+    document.getElementById('batch-list').innerHTML = items.map((item, i) => {
+      const label = `${item.date.slice(5).replace('-','月')}日  周${WEEKDAYS[item.dow]}  ${pad(item.hour)}:${pad(item.minute)}`;
+      const dupNote = item.duplicate ? ' <span style="color:#F57C00;font-size:11px">已有记录</span>' : '';
+      return `
+        <label class="batch-item">
+          <input type="checkbox" data-idx="${i}" ${item.duplicate ? '' : 'checked'}>
+          <div class="batch-item-info">
+            <div class="batch-item-date">${label}${dupNote}</div>
+          </div>
+        </label>
+      `;
+    }).join('');
+
+    // Store items for submit
+    document.getElementById('batch-list').dataset.name = name;
+    document.getElementById('batch-list').dataset.items = JSON.stringify(items);
+    updateBatchCount();
+  }
+
+  function updateBatchCount() {
+    const checked = document.querySelectorAll('#batch-list input:checked').length;
+    const total = document.querySelectorAll('#batch-list input').length;
+    document.getElementById('batch-count').textContent = `共 ${total} 节，已选 ${checked} 节`;
+    const btn = document.getElementById('batch-submit-btn');
+    btn.textContent = checked ? `保存 ${checked} 条记录` : '保存';
+    btn.disabled = checked === 0;
+  }
+
+  function toggleAllBatch() {
+    const boxes = document.querySelectorAll('#batch-list input[type="checkbox"]');
+    const allChecked = [...boxes].every(b => b.checked);
+    boxes.forEach(b => b.checked = !allChecked);
+    updateBatchCount();
+  }
+
+  // Live count update
+  document.addEventListener('change', e => {
+    if (e.target.closest('#batch-list')) updateBatchCount();
+  });
+
+  function submitBatch() {
+    const listEl = document.getElementById('batch-list');
+    const name = listEl.dataset.name;
+    const items = JSON.parse(listEl.dataset.items);
+    const checked = [...document.querySelectorAll('#batch-list input:checked')].map(b => parseInt(b.dataset.idx));
+    if (!checked.length) return;
+
+    checked.forEach(idx => {
+      const item = items[idx];
+      const dt = new Date(`${item.date}T${pad(item.hour)}:${pad(item.minute)}:00`);
+      state.records.push({ id: dt.getTime() + Math.random(), name, time: dt.toISOString() });
+    });
+    state.records.sort((a, b) => new Date(b.time) - new Date(a.time));
+    saveState();
+    renderPunch();
+    renderCalendar();
+    renderStats();
+    closeBatch();
+    showToast(`已补录 ${checked.length} 条记录`);
   }
 
   // ── Init ──
